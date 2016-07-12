@@ -1,6 +1,7 @@
 # commang is a command-line-hangout client.
 # it uses the hangups hangout library (https://github.com/tdryer/hangups)
-#
+# a lot of code was done by reading https://github.com/xmikos/hangupsbot
+
 import os
 import sys
 import logging
@@ -8,9 +9,10 @@ import argparse
 
 from cg_client import CGClient    
 from appdirs import AppDirs
-from hangups.ui.__main__ import LOG_FORMAT
 
 __cgversion__ = "1.0.0"
+
+LOG_FORMAT = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
  
 # developer debug level, dumps detailed debug logs on stderr
 dev_debug_enable = 0
