@@ -3,6 +3,9 @@ import urwid
 import asyncio
 import hangups
 
+import logging
+logging.getLogger(__name__)
+
 class CGWindow(urwid.WidgetWrap):
     def __init__(self):
         super().__init__(urwid.Filler(
@@ -18,7 +21,10 @@ class CGClient:
 
             
         def cg_debug(self, debug_str):
-            sys.stderr.write("[Debug] " + debug_str + "\n")
+            if self.dev_debug_enable == 1:
+                logging.log(logging.DEBUG, debug_str)
+            else:
+                logging.log(logging.INFO, debug_str)
             
             
         def cg_login2hangouts(self, token_file):

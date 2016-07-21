@@ -21,14 +21,16 @@ def cg_start_client():
     global cg_token_path
     
     cg = CGClient(dev_debug_enable, cg_token_path)  
-    cg_debug('created object' + str(cg))
+    cg_log('created object' + str(cg))
     cg.cg_run()
 
-def cg_debug(debug_str):
+def cg_log(debug_str):
     global dev_debug_enable
     
     if dev_debug_enable == 1:
-        sys.stderr.write("[Debug] " + debug_str + "\n")
+        logging.log(logging.DEBUG, debug_str)
+    else:
+        logging.log(logging.INFO, debug_str)
 
 def cg_create_default_dirs(args):
     for path in [args.log, args.token]:
@@ -39,7 +41,7 @@ def cg_create_default_dirs(args):
             except Exception as e:
                 sys.exit('Could not create directory: {}').format(e)    
 
-def cg_debug_init():
+def cg_log_init():
     global dev_debug_enable
     
     dpath = os.path.join(os.path.abspath(os.path.curdir), '.debug')
@@ -49,10 +51,10 @@ def cg_debug_init():
 def cg_main():
     global cg_token_path
     
-    cg_debug_init()
+    cg_log_init()
     cgdirs = AppDirs('commang', 'commang')
-    cg_debug("Log directory " + cgdirs.user_log_dir)
-    cg_debug("Data directory " + cgdirs.user_data_dir)
+    cg_log("Log directory " + cgdirs.user_log_dir)
+    cg_log("Data directory " + cgdirs.user_data_dir)
     cg_log_path = os.path.join(cgdirs.user_log_dir, 'commang.log')
     cg_token_path = os.path.join(cgdirs.user_data_dir, 'commangtoken.dat')
     
