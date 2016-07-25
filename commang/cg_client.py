@@ -2,29 +2,43 @@ import sys
 import urwid
 import asyncio
 import hangups
+from enum import Enum
 
 import logging
 logging.getLogger(__name__)
 
-class CGWindow(urwid.WidgetWrap):
-    def __init__(self):
-        super().__init__(urwid.Filler(
-                                      urwid.Text('commang Connecting to hangouts')
-                                      ))
+class CGState(Enum):
+    INIT = 1
+    CONNECTING = 1
+    CONNECTED = 2
+
+cg_palette = [
+              ('loading', '', ''),
+              ('userlist', '', ''),
+              ('active_chat', '', ''),
+              ('inactive_notify', '', ''),
+              ]
 
 class CGClient:
         def __init__(self, dev_debug_enable, cg_token_path):
+            self.cg_state = CGState.INIT
             self.dev_debug_enable = dev_debug_enable
             self.cg_debug("ctor" + str(self))
             self.cg_debug("token in " + cg_token_path)
             self.cg_token_path = cg_token_path
 
             
+        def cg_active_widget(self):
+            if self.cg_state == CGState.INIT:
+                text = urwid.Text(('loading', "Connecting to hangouts..."))
+                widget = urwid.Filler(text)
+                return widget                            
+            
         def cg_debug(self, debug_str):
             if self.dev_debug_enable == 1:
                 logging.log(logging.DEBUG, debug_str)
             else:
-                logging.log(logging.INFO, debug_str)
+                logging.log(logging.DEBUG, debug_str)
             
             
         def cg_login2hangouts(self, token_file):
@@ -33,11 +47,13 @@ class CGClient:
                 self.cg_debug(str(cookies))
                 return cookies
             except hangups.GoogleAuthError as e:
+                self.cg_debug("Login failed: " + str(e));
                 print("Login failed: " + str(e))
-                return None
+                sys.exit(1)
             
         @asyncio.coroutine
         def cg_on_connect_callback(self):
+            print("connected")
             self.cg_debug("[cb] connected")
         
         
@@ -57,8 +73,8 @@ class CGClient:
             self.cg_client = hangups.Client(cookies)
             self.cg_client.on_connect.add_observer(self.cg_on_connect_callback)
             loop = asyncio.get_event_loop()
-            self.cg_urwid_loop = urwid.MainLoop(CGWindow(),
-                                                None,
+            self.cg_urwid_loop = urwid.MainLoop(self.cg_active_widget(),
+                                                cg_palette,
                                                 handle_mouse=False,
                                                 input_filter=self.cg_input_filter,
                                                 event_loop=urwid.AsyncioEventLoop(loop=loop))

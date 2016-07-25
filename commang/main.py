@@ -30,7 +30,7 @@ def cg_log(debug_str):
     if dev_debug_enable == 1:
         logging.log(logging.DEBUG, debug_str)
     else:
-        logging.log(logging.INFO, debug_str)
+        logging.log(logging.DEBUG, debug_str)
 
 def cg_create_default_dirs(args):
     for path in [args.log, args.token]:
@@ -45,17 +45,20 @@ def cg_log_init():
     global dev_debug_enable
     
     dpath = os.path.join(os.path.abspath(os.path.curdir), '.debug')
+    print(dpath)
     if os.path.isfile(dpath):
         dev_debug_enable = 1
         
 def cg_main():
     global cg_token_path
+    global dev_debug_enable
     
     cg_log_init()
     cgdirs = AppDirs('commang', 'commang')
     cg_log("Log directory " + cgdirs.user_log_dir)
     cg_log("Data directory " + cgdirs.user_data_dir)
     cg_log_path = os.path.join(cgdirs.user_log_dir, 'commang.log')
+    print(cg_log_path)
     cg_token_path = os.path.join(cgdirs.user_data_dir, 'commangtoken.dat')
     
     # command line options
@@ -66,9 +69,8 @@ def cg_main():
     parser.add_argument('--log', default=cg_log_path, help='log file path')
     parser.add_argument('--token', default=cg_token_path, help='token storage path')
     args = parser.parse_args()
-    cg_create_default_dirs(args)
-    cgl = logging.DEBUG if args.verbose else logging.WARNING
-    logging.basicConfig(filename=args.log, level=cgl, format=LOG_FORMAT)
+    cg_create_default_dirs(args)    
+    logging.basicConfig(filename=args.log, level=logging.DEBUG, format=LOG_FORMAT)
     cg_start_client()
 
 if __name__ == '__main__':
