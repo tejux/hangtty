@@ -1,0 +1,6 @@
+#!/bin/sh
+
+python3 main.py
+stty sane
+
+
