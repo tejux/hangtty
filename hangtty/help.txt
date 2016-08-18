@@ -1,0 +1,23 @@
+
+=================
+hangtty commands
+
+ps      list conversations (shows 10 most recent)
+ps -a   list all conversations
+ps S*   list conversations starting with S 
+
+ls      list all contacts
+
+go <n>  open conversation (n), where (n) is index printed
+        in ps output. opens a new chat session
+        to exit chat session and go back to command prompt
+        hit \qq
+
+qq      leave conversation. to be used in a open chat session
+        with escape. typing "\qq" is interpreted as quit chat
+        session (instead of sending the typed text)
+
+cls     clear screen
+quit    exit hangtty
+exit    exit hangtty
+=================

@@ -85,7 +85,6 @@ def cg_main():
 
     args = parser.parse_args()
     cg_create_default_dirs(args)
-    print(args.log)
     logging.basicConfig(filename=args.log, level=logging.DEBUG, format=LOG_FORMAT)
     cg_start_client(args)
 

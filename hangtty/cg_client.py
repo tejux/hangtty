@@ -1,3 +1,5 @@
+import re
+import fnmatch
 import sys
 import signal
 import curses
@@ -31,6 +33,7 @@ class CGClient():
             self.cg_cur_conv = None
             self.cg_buf = []
             self.cg_history = []
+            self.cg_hix = 0
             self.cg_keys = keys
             self.cg_state = CGState.INIT
             self.dev_debug_enable = dev_debug_enable
@@ -47,6 +50,7 @@ class CGClient():
                     "go"   : CGClient.cgx_gochat,
                     "qq"   : CGClient.cgx_quitconv,
                     "cls"  : CGClient.cgx_cls,
+                    "help" : CGClient.cgx_help,
                     }
             signal.signal(signal.SIGINT, self.cg_ctrlc)
             signal.siginterrupt(signal.SIGINT, False)
@@ -76,10 +80,11 @@ class CGClient():
 
         @asyncio.coroutine
         def cg_on_connect_callback(self):
-            self.cg_info("Connected\n")
+            self.cg_info("Connected")
+            self.cg_conv_downloading = 1
+            self.cg_info("Loading conversations... Please wait...")
             self.cg_state = CGState.CONNECTED
             self.lx = 1 + len(CG_PROMPT)
-            self.cg_prompt()
             self.cg_loop.call_later(0.1, self.cg_io_callback)
             self.cg_ulist, self.cg_clist = (
                 yield from hangups.build_user_conversation_list(self.cg_client)
@@ -142,12 +147,19 @@ class CGClient():
                     self.cg_show_history()
                     self.cg_download_state = 0
                     self.cg_prompt()
+            elif(self.cg_conv_downloading == 1):
+                if(self.cg_ulist != None and self.cg_clist != None):
+                    self.cg_conv_downloading = 0
+                    self.cg_info("Done\n")
+                    self.cg_prompt()
             else:
                 self.cg_try_accept_input()
             if(self.cg_state != CGState.EXITING):
                 self.cg_io = self.cg_loop.call_later(0.1, self.cg_io_callback)
 
         def cg_backch(self):
+            if(len(self.cg_buf) == 0):
+                return
             y, x = self.cg_win.getyx()
             if(x >= self.lx):
                 self.cg_win.delch(y, x - 1)
@@ -194,6 +206,8 @@ class CGClient():
             future.add_done_callback(lambda future: future.result())
 
         def cg_conv_event_with_self(self, conv_event):
+            if(isinstance(conv_event, hangups.ChatMessageEvent) == False):
+                return
             conv = self.cg_clist.get(conv_event.conversation_id)
             user_name = self._cgutil_get_conv_name(conv)
             user = conv.get_user(conv_event.user_id)
@@ -270,7 +284,6 @@ class CGClient():
                     self.lx = len("Myself >> ") + 1
                     self.cg_cur_conv = conv
                     self.cg_state = CGState.CHATTING
-                    self.cg_download_msgs()
                     self.cg_downloading = 1
                     self.cg_download_state = 1
                     future =  asyncio.async(self.cg_download_msgs())
@@ -280,19 +293,29 @@ class CGClient():
                 i = i + 1
 
         def cgx_listconv(self, args):
+            do_mat = 0
             if(self.cg_clist == None):
                 return
             limit = 10
-            if(args != None and args == "-a"):
-                limit = 1000
+            if(args != None):
+                if(len(args) == 2 and args == "-a"):
+                    limit = 1000
+                else:
+                    limit = 1000
+                    do_mat = 1
+                    regex = fnmatch.translate(args)
+                    pat = re.compile(regex)
             self.cg_write_byte('\n')
             i = 1
             convs = sorted(self.cg_clist.get_all(), reverse=True, key=lambda c:c.last_modified)
             for conv in convs:
                 label = self._cgutil_get_conv_name(conv)
-                self.cg_write_nop(str(i) + ") " + label)
+                if(do_mat == 1):
+                    if(bool(pat.match(label))):
+                        self.cg_write_nop(str(i) + ") " + label + "\n")
+                else:
+                    self.cg_write_nop(str(i) + ") " + label + "\n")
                 i = i + 1
-                self.cg_write_nop("\n")
                 if(i > limit):
                     return
 
@@ -317,6 +340,14 @@ class CGClient():
             self.cg_win.erase()
             self.cg_prompt()
 
+        def cgx_help(self, cmd):
+            f = open('help.txt', 'r')
+            if(f == None):
+                self.cg_info("Could not find help file")
+                return
+            for line in f:
+                self.cg_write_nop(line)
+
         def cgx_quitconv(self, cmd):
             self.cg_info("Leaving conversation " + self.cg_cur_chat_user)
             self.cg_cur_chat_user = None
@@ -335,10 +366,37 @@ class CGClient():
                 self.cg_commands_dict[args[0]](self, vargs)
 
         def cg_log_history(self, cmd):
-            self.cg_history.append(cmd)
+            self.cg_history.insert(0, cmd)
+            self.cg_hix = 0
+
+        def cg_downkey(self):
+            if(self.cg_state == CGState.CHATTING):
+                self.cg_win.scroll(1)
+            if(self.cg_hix > 0):
+                self.cg_hix -= 1
+                self.cg_buf = []
+                cmd = ''.join(self.cg_history[self.cg_hix])
+                y, x = self.cg_win.getyx()
+                self.cg_win.move(y, 0)
+                self.cg_win.clrtoeol()
+                self.cg_prompt()
+                for x in cmd:
+                    self.cg_handlech(x)
 
         def cg_upkey(self):
-            pass
+            if(self.cg_state == CGState.CHATTING):
+                self.cg_win.scroll(-1)
+                return
+            if(len(self.cg_history) > self.cg_hix):
+                self.cg_buf = []
+                cmd = ''.join(self.cg_history[self.cg_hix])
+                y, x = self.cg_win.getyx()
+                self.cg_win.move(y, 0)
+                self.cg_win.clrtoeol()
+                self.cg_prompt()
+                for x in cmd:
+                    self.cg_handlech(x)
+                self.cg_hix += 1
 
         def cg_takeactions(self, op, val):
             if(op == CG_CMD):
@@ -367,6 +425,9 @@ class CGClient():
                 self.cg_takeactions(op, cmd)
 
         def cg_handle_input(self, ch):
+            if(ch == curses.KEY_MOUSE):
+                return
+
             if ch == ord('\n'):
                 self.cg_runcmd()
                 self.cg_write_byte('\n')
@@ -375,6 +436,8 @@ class CGClient():
                 self.cg_backch()
             elif ch == curses.KEY_UP:
                 self.cg_upkey()
+            elif ch == curses.KEY_DOWN:
+                self.cg_downkey()
             else:
                 self.cg_handlech(chr(ch))
 
@@ -386,12 +449,11 @@ class CGClient():
                 self.cg_handle_input(ch)
 
         def cg_run(self):
-            print("Connecting... Please wait...\n")
+            self.cg_start_screen()
             cookies = self.cg_login2hangouts(self.cg_token_path)
             self.cg_client = hangups.Client(cookies)
             self.cg_client.on_connect.add_observer(self.cg_on_connect_callback)
             self.cg_client.on_disconnect.add_observer(self.cg_on_disconnect_callback())
-            self.cg_start_screen()
 
             try:
                 self.cg_loop = asyncio.get_event_loop()
