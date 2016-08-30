@@ -12,30 +12,38 @@ logger = logging.getLogger(__name__)
 
 CG_PROMPT = "hangtty! # "
 CG_INFO = "\n=======> "
+CG_TABS = 9
 
-class CGState(Enum):
-    INIT = 1
-    CONNECTED = 2
-    CHATTING = 3
-    EXITING = 4
-
-CG_INCHAT_CMD = 1
-CG_CMD = 2
-CG_INCHAT_MSG = 3
+CG_INIT = 1
+CG_CONNECTING = 2
+CG_CONNECTED = 2
+CG_CONVLOADING = 3
+CG_CONVLOADED = 4
+CG_HISTORYLOADING = 6
+CG_HISTORYLOADED = 7
+CG_EXITING = 8
+CG_READY = 20
 
 class CGClient():
         def __init__(self, dev_debug_enable, keys, cg_token_path):
-            self.cg_win = ""
-            self.cg_download_state = 0
-            self.cg_downloading = 0
-            self.cg_loop = ""
-            self.cg_cur_chat_user = ""
+            self.cg_loop = None
+
+            self.cg_bw = None # initscr base window
+            self.cg_mw = None # main window
+            self.cg_bar = None # status bar
+            self.cg_st = CG_INIT
+            self.cg_mx = 0 # max X
+            self.cg_my = 0 # max Y
+            self.cg_tabs = []
+            self.cg_tabconvs = []
+            self.cg_tabix = 0
+
+            self.cg_cur_chat_user = None
             self.cg_cur_conv = None
             self.cg_buf = []
             self.cg_history = []
             self.cg_hix = 0
             self.cg_keys = keys
-            self.cg_state = CGState.INIT
             self.dev_debug_enable = dev_debug_enable
             self.cg_debug("ctor" + str(self))
             self.cg_debug("token in " + cg_token_path)
@@ -56,7 +64,17 @@ class CGClient():
             signal.siginterrupt(signal.SIGINT, False)
 
         def cg_ctrlc(self, signum, frame):
-            self.cgx_quit(None)
+            if(self.cg_tabix != 0):
+                self.cg_info("Leaving conversation " + self.cg_cur_chat_user)
+                self.cg_tabs.remove(self.cg_cur_chat_user)
+                self.cg_tabconvs.remove(self.cg_cur_conv)
+                self.cg_tabix = 0
+                self.cg_mw.erase()
+                self.lx = len(CG_PROMPT) + 1
+                self.cg_prompt()
+                self.cg_update()
+            else:
+                self.cgx_quit(None)
 
         def cg_debug(self, debug_str):
             if self.dev_debug_enable == 1:
@@ -81,88 +99,138 @@ class CGClient():
         @asyncio.coroutine
         def cg_on_connect_callback(self):
             self.cg_info("Connected")
-            self.cg_conv_downloading = 1
-            self.cg_info("Loading conversations... Please wait...")
-            self.cg_state = CGState.CONNECTED
+            self.cg_st = CG_CONNECTED
+            self.cg_info("Loading conversations... Please wait ... ")
             self.lx = 1 + len(CG_PROMPT)
             self.cg_loop.call_later(0.1, self.cg_io_callback)
             self.cg_ulist, self.cg_clist = (
                 yield from hangups.build_user_conversation_list(self.cg_client)
             )
             self.cg_clist.on_event.add_observer(self.cg_conv_event)
+            self.cg_st = CG_CONVLOADING
 
         # display functions
         def cg_get_prompt(self):
-            if(self.cg_state == CGState.CHATTING):
+            if(self.cg_tabix != 0):
                 return "Myself >> "
             else:
                 return CG_PROMPT
 
         def cg_prompt(self):
             strx = self.cg_get_prompt()
-            self.cg_win.addstr(strx)
+            self.cg_mw.addstr(strx)
             self.cg_update()
 
         def cg_write_byte(self, ch):
-            self.cg_win.addch(ch);
+            self.cg_mw.addch(ch);
             self.cg_update()
 
         def cg_info(self, text):
-            self.cg_win.attron(curses.color_pair(3))
+            self.cg_mw.attron(curses.color_pair(3))
             self.cg_write_nop(CG_INFO + text);
-            self.cg_win.attroff(curses.color_pair(3))
+            self.cg_mw.attroff(curses.color_pair(3))
 
         def cg_write_nop(self, text):
-            self.cg_win.addstr(text);
+            self.cg_mw.addstr(text);
             self.cg_update()
 
+        def cg_write_tab(self):
+            if(self.cg_bar != None):
+                self.cg_bar.attron(curses.color_pair(4))
+                self.cg_bar.hline(' ', self.cg_bar_len)
+                self.cg_bar.attroff(curses.color_pair(4))
+                sz = int(self.cg_bar_len / CG_TABS)
+                cur = 0
+                pos = 0
+                for item in self.cg_tabs:
+                    lft = sz - len(item)
+                    strx = ""
+                    for i in range(int(lft/2)):
+                        strx += " "
+                    strx += item
+                    for i in range(int(lft/2)):
+                        strx += " "
+                    if(self.cg_tabix == cur):
+                        self.cg_bar.attron(curses.color_pair(5))
+                        self.cg_bar.addstr(0, pos, strx)
+                        self.cg_bar.attroff(curses.color_pair(5))
+                    else:
+                        self.cg_bar.attron(curses.color_pair(4))
+                        self.cg_bar.addstr(0, pos, strx)
+                        self.cg_bar.attroff(curses.color_pair(4))
+                    pos += int(sz)
+                    cur += 1
+                self.cg_bar.refresh()
+
         def cg_update(self):
-            self.cg_win.refresh()
+            y, x = self.cg_mw.getyx()
+            self.cg_write_tab()
+            self.cg_mw.refresh()
+            self.cg_mw.move(y, x)
+
         # end display functions
 
         def cg_start_screen(self):
-            self.cg_win = curses.initscr()
+            self.cg_bw = curses.initscr()
             curses.start_color()
             curses.use_default_colors()
             curses.init_pair(1, curses.COLOR_GREEN, -1)
             curses.init_pair(2, curses.COLOR_RED, -1)
             curses.init_pair(3, curses.COLOR_BLUE, -1)
+            curses.init_pair(4, -1, curses.COLOR_CYAN)
+            curses.init_pair(5, curses.COLOR_CYAN, curses.COLOR_BLACK)
             curses.noecho()
             curses.cbreak()
             curses.halfdelay(10)
-            self.cg_win.keypad(1)
-            self.cg_win.scrollok(1)
-            self.cg_win.idlok(1)
+            self.cg_bw.keypad(1)
+            self.cg_bw.scrollok(1)
+            self.cg_bw.idlok(1)
+
+            self.cg_my, self.cg_mx = self.cg_bw.getmaxyx()
+            self.cg_mw = curses.newwin(self.cg_my - 2, self.cg_mx, 0, 0)
+            self.cg_mw.keypad(1)
+            self.cg_mw.scrollok(1)
+            self.cg_mw.idlok(1)
+            self.cg_mw.refresh()
+
+            self.cg_bar_len = self.cg_mx
+            self.cg_bar = curses.newwin(1, self.cg_mx, self.cg_my - 1, 0)
+            self.cg_bar.refresh()
+            self.cg_tabs.append("Shell")
+            self.cg_tabconvs.append(None)
             self.cg_info("Connecting to Google Hangouts... Please wait ... ");
 
         def cg_reset_screen(self):
             curses.nocbreak()
-            self.cg_win.keypad(0)
+            self.cg_bw.keypad(0)
             curses.echo()
             curses.endwin()
 
         def cg_io_callback(self):
-            if(self.cg_download_state == 1):
-                if(self.cg_downloading == 0):
-                    self.cg_show_history()
-                    self.cg_download_state = 0
-                    self.cg_prompt()
-            elif(self.cg_conv_downloading == 1):
-                if(self.cg_ulist != None and self.cg_clist != None):
-                    self.cg_conv_downloading = 0
+            if(self.cg_st == CG_READY):
+                self.cg_try_accept_input()
+            elif(self.cg_st == CG_CONVLOADING):
+                if(self.cg_clist != None and self.cg_ulist != None):
+                    self.cg_st = CG_READY
                     self.cg_info("Done\n")
                     self.cg_prompt()
+            elif(self.cg_st == CG_HISTORYLOADING):
+                self.cg_write_nop(".")
+            elif(self.cg_st == CG_HISTORYLOADED):
+                self.cg_st = CG_READY
+                self.cg_show_history()
+                self.cg_prompt()
             else:
-                self.cg_try_accept_input()
-            if(self.cg_state != CGState.EXITING):
+                pass
+            if(self.cg_st != CG_EXITING):
                 self.cg_io = self.cg_loop.call_later(0.1, self.cg_io_callback)
 
         def cg_backch(self):
             if(len(self.cg_buf) == 0):
                 return
-            y, x = self.cg_win.getyx()
+            y, x = self.cg_mw.getyx()
             if(x >= self.lx):
-                self.cg_win.delch(y, x - 1)
+                self.cg_mw.delch(y, x - 1)
                 self.cg_buf.pop()
                 self.cg_update()
 
@@ -218,13 +286,13 @@ class CGClient():
                 me = 0
                 lbl = user_name + " << "
             mstr = lbl + conv_event.text + "\n"
-            y, x = self.cg_win.getyx()
-            self.cg_win.move(y, 0)
+            y, x = self.cg_mw.getyx()
+            self.cg_mw.move(y, 0)
             if(me == 0):
-                self.cg_win.attron(curses.color_pair(1))
+                self.cg_mw.attron(curses.color_pair(1))
             self.cg_write_nop(mstr)
             if(me == 0):
-                self.cg_win.attroff(curses.color_pair(1))
+                self.cg_mw.attroff(curses.color_pair(1))
 
         def cg_conv_event(self, conv_event):
             conv = self.cg_clist.get(conv_event.conversation_id)
@@ -232,25 +300,22 @@ class CGClient():
             user = conv.get_user(conv_event.user_id)
             if(user.is_self):
                 return
-            if(conv == self.cg_cur_conv):
+            if(conv == self.cg_cur_conv and self.cg_tabix != 0):
                 mstr = self.cg_cur_chat_user + " << " + conv_event.text + "\n"
-                y, x = self.cg_win.getyx()
-                self.cg_win.move(y, 0)
-                self.cg_win.attron(curses.color_pair(1))
+                y, x = self.cg_mw.getyx()
+                self.cg_mw.move(y, 0)
+                self.cg_mw.attron(curses.color_pair(1))
                 self.cg_write_nop(mstr)
-                self.cg_win.attroff(curses.color_pair(1))
+                self.cg_mw.attroff(curses.color_pair(1))
                 self.cg_write_nop("Myself >> " + ''.join(self.cg_buf))
             else:
                 mstr = "[ " + user_name + " << " + conv_event.text + " ]\n"
-                y, x = self.cg_win.getyx()
-                self.cg_win.move(y, 0)
-                self.cg_win.attron(curses.color_pair(2))
+                y, x = self.cg_mw.getyx()
+                self.cg_mw.move(y, 0)
+                self.cg_mw.attron(curses.color_pair(2))
                 self.cg_write_nop(mstr)
-                self.cg_win.attroff(curses.color_pair(2))
-                if(self.cg_state == CGState.CHATTING):
-                    self.cg_write_nop("Myself >> " + ''.join(self.cg_buf))
-                else:
-                    self.cg_write_nop(CG_PROMPT + ''.join(self.cg_buf))
+                self.cg_mw.attroff(curses.color_pair(2))
+                self.cg_write_nop(self.cg_get_prompt())
 
         def cg_show_history(self):
             if(self.cg_cur_conv.events):
@@ -264,8 +329,16 @@ class CGClient():
             )
 
         def cg_download_callback(self, future):
-            self.cg_downloading = 0
+            self.cg_st = CG_HISTORYLOADED
             future.result()
+
+        def cg_is_present_conv(self, label):
+            i = 0
+            for lbl in self.cg_tabs:
+                if(lbl == label):
+                    return i
+                i += 1
+            return -1
 
         def cgx_gochat(self, args):
             if(args == None):
@@ -279,16 +352,24 @@ class CGClient():
             for conv in convs:
                 label = self._cgutil_get_conv_name(conv)
                 if(i == find):
+                    ix = self.cg_is_present_conv(label)
+                    if(ix != -1):
+                        self.cg_goindex(ix)
+                        return
+                    if(len(self.cg_tabs) >= CG_TABS):
+                        self.cg_info("No more tabs. Leave some conversation")
+                        return
                     self.cg_info("Conversation with " + label)
                     self.cg_cur_chat_user = label
+                    self.cg_tabs.append(label)
+                    self.cg_tabconvs.append(conv)
+                    self.cg_tabix = len(self.cg_tabs) - 1
                     self.lx = len("Myself >> ") + 1
                     self.cg_cur_conv = conv
-                    self.cg_state = CGState.CHATTING
-                    self.cg_downloading = 1
-                    self.cg_download_state = 1
+                    self.cg_st = CG_HISTORYLOADING
                     future =  asyncio.async(self.cg_download_msgs())
                     future.add_done_callback(self.cg_download_callback)
-                    self.cg_info("Loading history...")
+                    self.cg_info("Loading history... Please wait ... ")
                     return
                 i = i + 1
 
@@ -334,10 +415,10 @@ class CGClient():
             future = asyncio.async(self.cg_client.disconnect())
             future.add_done_callback(lambda future: future.result())
             self.cg_info("Exiting . . .")
-            self.cg_state = CGState.EXITING
+            self.cg_st = CG_EXITING
 
         def cgx_cls(self, cmd):
-            self.cg_win.erase()
+            self.cg_mw.erase()
             self.cg_prompt()
 
         def cgx_help(self, cmd):
@@ -349,11 +430,12 @@ class CGClient():
                 self.cg_write_nop(line)
 
         def cgx_quitconv(self, cmd):
+            if(self.cg_cur_chat_user == None):
+                return
             self.cg_info("Leaving conversation " + self.cg_cur_chat_user)
             self.cg_cur_chat_user = None
             self.lx = len(CG_PROMPT) + 1
             self.cg_cur_conv = None
-            self.cg_state = CGState.CONNECTED
 
         def cg_menu_op(self, args):
             if(len(args) == 0):
@@ -370,59 +452,89 @@ class CGClient():
             self.cg_hix = 0
 
         def cg_downkey(self):
-            if(self.cg_state == CGState.CHATTING):
-                self.cg_win.scroll(1)
-            if(self.cg_hix > 0):
+            if(self.cg_tabix == 0):
+                pass
+            elif(self.cg_hix > 0):
                 self.cg_hix -= 1
                 self.cg_buf = []
                 cmd = ''.join(self.cg_history[self.cg_hix])
-                y, x = self.cg_win.getyx()
-                self.cg_win.move(y, 0)
-                self.cg_win.clrtoeol()
+                y, x = self.cg_mw.getyx()
+                self.cg_mw.move(y, 0)
+                self.cg_mw.clrtoeol()
                 self.cg_prompt()
                 for x in cmd:
                     self.cg_handlech(x)
 
         def cg_upkey(self):
-            if(self.cg_state == CGState.CHATTING):
-                self.cg_win.scroll(-1)
-                return
-            if(len(self.cg_history) > self.cg_hix):
+            if(self.cg_tabix == 0):
+                pass
+            elif(len(self.cg_history) > self.cg_hix):
                 self.cg_buf = []
                 cmd = ''.join(self.cg_history[self.cg_hix])
-                y, x = self.cg_win.getyx()
-                self.cg_win.move(y, 0)
-                self.cg_win.clrtoeol()
+                y, x = self.cg_mw.getyx()
+                self.cg_mw.move(y, 0)
+                self.cg_mw.clrtoeol()
                 self.cg_prompt()
                 for x in cmd:
                     self.cg_handlech(x)
                 self.cg_hix += 1
 
         def cg_takeactions(self, op, val):
-            if(op == CG_CMD):
+            if(op != 0):
+                # its a command
                 self.cg_log_history(val)
                 parts = val.split(None, 1)
                 self.cg_menu_op(parts)
-            elif(op == CG_INCHAT_MSG):
+            else:
+                # its a message
                 if(len(val) > 0):
                     self.cg_send_chat(val)
-            elif(op == CG_INCHAT_CMD):
-                if(len(val) > 0):
-                    val = val[1:]
-                    parts = val.split(None, 1)
-                    self.cg_menu_op(parts)
 
         def cg_runcmd(self):
             if(len(self.cg_buf) > 0):
-                if(self.cg_state == CGState.CHATTING and self.cg_buf[0] == '\\'):
-                    op = CG_INCHAT_CMD
-                elif(self.cg_state == CGState.CHATTING):
-                    op = CG_INCHAT_MSG
+                if(self.cg_tabix == 0):
+                    op = 1
                 else:
-                    op = CG_CMD
+                    op = 0
                 cmd = ''.join(self.cg_buf)
                 self.cg_buf = []
                 self.cg_takeactions(op, cmd)
+
+        def cg_goindex(self, ix):
+            self.cg_tabix = ix
+            self.cg_mw.erase()
+            if(self.cg_tabix != 0):
+                self.cg_cur_chat_user = self.cg_tabs[self.cg_tabix]
+                self.cg_cur_conv = self.cg_tabconvs[self.cg_tabix]
+                self.cg_show_history()
+            self.cg_prompt()
+            self.cg_update()
+
+        def cg_goleft(self):
+            if(self.cg_tabix == 0):
+                self.cg_tabix = len(self.cg_tabs) - 1
+            else:
+                self.cg_tabix -= 1
+            self.cg_mw.erase()
+            if(self.cg_tabix != 0):
+                self.cg_cur_chat_user = self.cg_tabs[self.cg_tabix]
+                self.cg_cur_conv = self.cg_tabconvs[self.cg_tabix]
+                self.cg_show_history()
+            self.cg_prompt()
+            self.cg_update()
+
+        def cg_goright(self):
+            if(self.cg_tabix == len(self.cg_tabs) - 1):
+                self.cg_tabix = 0
+            else:
+                self.cg_tabix += 1
+            self.cg_mw.erase()
+            if(self.cg_tabix != 0):
+                self.cg_cur_chat_user = self.cg_tabs[self.cg_tabix]
+                self.cg_cur_conv = self.cg_tabconvs[self.cg_tabix]
+                self.cg_show_history()
+            self.cg_prompt()
+            self.cg_update()
 
         def cg_handle_input(self, ch):
             if(ch == curses.KEY_MOUSE):
@@ -438,12 +550,16 @@ class CGClient():
                 self.cg_upkey()
             elif ch == curses.KEY_DOWN:
                 self.cg_downkey()
+            elif ch == curses.KEY_SLEFT:
+                self.cg_goleft()
+            elif ch == curses.KEY_SRIGHT:
+                self.cg_goright()
             else:
                 self.cg_handlech(chr(ch))
 
         def cg_try_accept_input(self):
             while 1:
-                ch = self.cg_win.getch()
+                ch = self.cg_mw.getch()
                 if(ch == -1):
                     return
                 self.cg_handle_input(ch)
@@ -455,10 +571,8 @@ class CGClient():
             self.cg_client.on_connect.add_observer(self.cg_on_connect_callback)
             self.cg_client.on_disconnect.add_observer(self.cg_on_disconnect_callback())
 
-            try:
-                self.cg_loop = asyncio.get_event_loop()
-            except NotImplementedError:
-                pass
+            self.cg_st = CG_CONNECTING
+            self.cg_loop = asyncio.get_event_loop()
             try:
                 self.cg_loop.run_until_complete(self.cg_client.connect())
             finally:
