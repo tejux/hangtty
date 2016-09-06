@@ -6,13 +6,14 @@ import curses
 import asyncio
 import hangups
 from enum import Enum
+from pync import Notifier
 
 import logging
 logger = logging.getLogger(__name__)
 
 CG_PROMPT = "hangtty! # "
 CG_INFO = "\n=======> "
-CG_TABS = 9
+CG_TABS = 7
 
 CG_INIT = 1
 CG_CONNECTING = 2
@@ -300,6 +301,8 @@ class CGClient():
             user = conv.get_user(conv_event.user_id)
             if(user.is_self):
                 return
+            notmsg = "Message from " + user_name
+            Notifier.notify(notmsg, title='hangtty!')
             if(conv == self.cg_cur_conv and self.cg_tabix != 0):
                 mstr = self.cg_cur_chat_user + " << " + conv_event.text + "\n"
                 y, x = self.cg_mw.getyx()
