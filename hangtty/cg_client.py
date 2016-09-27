@@ -6,7 +6,9 @@ import curses
 import asyncio
 import hangups
 from enum import Enum
-from pync import Notifier
+
+if sys.platform == 'darwin':
+    from pync import Notifier
 
 import logging
 logger = logging.getLogger(__name__)
@@ -294,6 +296,10 @@ class CGClient():
             if(me == 0):
                 self.cg_mw.attroff(curses.color_pair(1))
 
+        def cg_notify(self, notifymsg):
+            if(sys.platform == 'darwin'):
+                Notifier.notify(notmsg, title='hangtty!')
+
         def cg_conv_event(self, conv_event):
             conv = self.cg_clist.get(conv_event.conversation_id)
             user_name = self._cgutil_get_conv_name(conv)
@@ -301,7 +307,7 @@ class CGClient():
             if(user.is_self):
                 return
             notmsg = "Message from " + user_name
-            Notifier.notify(notmsg, title='hangtty!')
+            self.cg_notify(notmsg)
             if(conv == self.cg_cur_conv and self.cg_tabix != 0):
                 mstr = self.cg_cur_chat_user + " << " + conv_event.text + "\n"
                 y, x = self.cg_mw.getyx()
