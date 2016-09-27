@@ -90,7 +90,6 @@ class CGClient():
                 return cookies
             except Exception as e:
                 self.cg_debug(e);
-                self.cg_reset_screen()
                 print("Login failed. Exiting...")
 
         @asyncio.coroutine
@@ -568,8 +567,8 @@ class CGClient():
                 self.cg_handle_input(ch)
 
         def cg_run(self):
-            self.cg_start_screen()
             cookies = self.cg_login2hangouts(self.cg_token_path)
+            self.cg_start_screen()
             self.cg_client = hangups.Client(cookies)
             self.cg_client.on_connect.add_observer(self.cg_on_connect_callback)
             self.cg_client.on_disconnect.add_observer(self.cg_on_disconnect_callback())
