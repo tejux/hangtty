@@ -9,6 +9,9 @@ from enum import Enum
 
 if sys.platform == 'darwin':
     from pync import Notifier
+elif sys.platform == 'linux':
+    import notify2
+    notify2.init("hangtty!")
 
 import logging
 logger = logging.getLogger(__name__)
@@ -299,6 +302,9 @@ class CGClient():
         def cg_notify(self, notifymsg):
             if(sys.platform == 'darwin'):
                 Notifier.notify(notmsg, title='hangtty!')
+            elif(sys.platform == 'linux'):
+                n = notify2.Notification("hangtty!", notifymsg, "notification-message-im")
+                n.show()
 
         def cg_conv_event(self, conv_event):
             conv = self.cg_clist.get(conv_event.conversation_id)
