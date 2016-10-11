@@ -301,7 +301,7 @@ class CGClient():
 
         def cg_notify(self, notifymsg):
             if(sys.platform == 'darwin'):
-                Notifier.notify(notmsg, title='hangtty!')
+                Notifier.notify(notifymsg, title='hangtty!')
             elif(sys.platform == 'linux'):
                 n = notify2.Notification("hangtty!", notifymsg, "notification-message-im")
                 n.show()
