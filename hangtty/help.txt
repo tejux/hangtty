@@ -9,13 +9,10 @@ ps S*   list conversations starting with S
 ls      list all contacts
 
 go <n>  open conversation (n), where (n) is index printed
-        in ps output. opens a new chat session
-        to exit chat session and go back to command prompt
-        hit \qq
-
-qq      leave conversation. to be used in a open chat session
-        with escape. typing "\qq" is interpreted as quit chat
-        session (instead of sending the typed text)
+        in ps output. opens a new chat session in a new tab.
+        To quit session use Ctrl-C.
+        At-most 6 tabs can be active at a time
+        To move between sessions use Shift-Right/Shift-Left
 
 cls     clear screen
 quit    exit hangtty
